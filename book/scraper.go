@@ -313,6 +313,10 @@ func scrapeChapter(url, linkName string, configs []*ScrapeConfig, index int, upd
 			if recordErr := bs.RecordFailure(normalized, url, err.Error(), parent, depth, index); recordErr != nil {
 				return chapter{}, recordErr
 			}
+			// on a refresh failure, keep using the last known good page
+			if bs.HasPage(normalized) {
+				return chapterFromStore(normalized, url, linkName, configs, index, updateProgressBarName, opts)
+			}
 		}
 		return chapter{}, err
 	}
@@ -323,6 +327,10 @@ func scrapeChapter(url, linkName string, configs []*ScrapeConfig, index int, upd
 		if bs != nil {
 			if recordErr := bs.RecordFailure(normalized, url, err.Error(), parent, depth, index); recordErr != nil {
 				return chapter{}, recordErr
+			}
+			// on a refresh failure, keep using the last known good page
+			if bs.HasPage(normalized) {
+				return chapterFromStore(normalized, url, linkName, configs, index, updateProgressBarName, opts)
 			}
 		}
 		return chapter{}, err

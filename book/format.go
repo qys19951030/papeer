@@ -3,11 +3,9 @@ package book
 import (
 	"fmt"
 	"html"
-	"io"
-	"log"
-	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	md "github.com/JohannesKaufmann/html-to-markdown/v2"
@@ -42,7 +40,7 @@ func ToMarkdownString(c chapter) string {
 		// convert content to markdown
 		content, err := md.ConvertString(c.Content())
 		if err != nil {
-			log.Fatal(err)
+			logFatal(err)
 		}
 		markdown += fmt.Sprintf("%s\n\n\n", content)
 	}
@@ -65,11 +63,11 @@ func ToMarkdown(c chapter, filename string) string {
 	// write to file
 	f, err := os.Create(filename)
 	if err != nil {
-		log.Fatal(err)
+		logFatal(err)
 	}
 	_, err2 := f.WriteString(markdown)
 	if err2 != nil {
-		log.Fatal(err2)
+		logFatal(err2)
 	}
 	f.Close()
 
@@ -111,11 +109,11 @@ func ToHtml(c chapter, filename string) string {
 	// write to file
 	f, err := os.Create(filename)
 	if err != nil {
-		log.Fatal(err)
+		logFatal(err)
 	}
 	_, err2 := f.WriteString(html)
 	if err2 != nil {
-		log.Fatal(err2)
+		logFatal(err2)
 	}
 	f.Close()
 
@@ -130,7 +128,7 @@ func ToEpub(c chapter, filename string) string {
 	// init ebook
 	e, err := epub.NewEpub(c.Name())
 	if err != nil {
-		log.Fatal(err)
+		logFatal(err)
 	}
 
 	author := c.Author()
@@ -151,21 +149,53 @@ func ToEpub(c chapter, filename string) string {
 
 		_, err := e.AddSection(html, "Table of Contents", "", "")
 		if err != nil {
-			log.Fatal(err)
+			logFatal(err)
 		}
 	}
 
-	AppendToEpub(e, c)
+	if err := AppendToEpub(e, c); err != nil {
+		logFatal(err)
+	}
 
 	err = e.Write(filename)
 	if err != nil {
-		log.Fatal(err)
+		logFatal(err)
 	}
 
 	return filename
 }
 
-func AppendToEpub(e *epub.Epub, c chapter) {
+// resolveImageSource returns the source passed to epub.AddImage for an
+// image referenced by src. When the chapter was built against a local
+// library, the stored file is used directly (no network, no temp file);
+// otherwise the original http(s) source is kept for on-demand download.
+func resolveImageSource(c chapter, src string) string {
+	if c.storeRoot == "" || c.images == nil {
+		return src
+	}
+
+	normalized, err := normalizeImageSrc(src)
+	if err != nil {
+		return src
+	}
+	rel, ok := c.images[normalized]
+	if !ok {
+		return src
+	}
+	abs := filepath.Join(c.storeRoot, filepath.FromSlash(rel))
+	if _, err := os.Stat(abs); err != nil {
+		// a missing local image must not break the whole book; the epub
+		// library will simply fail to embed this one image
+		return src
+	}
+	return abs
+}
+
+// AppendToEpub adds one chapter (and recursively its subchapters) to the
+// epub. Images are taken from the local library when available, so no
+// network request and no temporary file are needed. It returns an error
+// instead of terminating the process.
+func AppendToEpub(e *epub.Epub, c chapter) error {
 	content := ""
 	p := bluemonday.UGCPolicy()
 	safeHTML := p.Sanitize(c.Content())
@@ -180,43 +210,26 @@ func AppendToEpub(e *epub.Epub, c chapter) {
 		// parse content
 		doc, err := goquery.NewDocumentFromReader(strings.NewReader(safeHTML))
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 
-		// download images and replace src in img tags of content
+		// resolve images and replace src in img tags of content
+		var imgErr error
 		doc.Find("img").Each(func(i int, s *goquery.Selection) {
+			if imgErr != nil {
+				return
+			}
 			src, _ := s.Attr("src")
 			src = strings.Split(src, "?")[0] // remove query part
 
-			// prepare request
-			req, err := http.NewRequest("GET", src, nil)
-			if err != nil {
-				log.Fatal(err)
-			}
-			req.Header.Set("User-Agent", "papeer")
+			source := resolveImageSource(c, src)
 
-			// make request
-			client := &http.Client{}
-			response, err := client.Do(req)
+			imagePath, err := e.AddImage(source, "")
 			if err != nil {
-				log.Fatal(err)
+				// one bad image must not abort the entire book
+				imgErr = nil
+				return
 			}
-			defer response.Body.Close()
-
-			// create temp file
-			file, err := os.CreateTemp("", "papeer-image*.jpg") // works for jpg and png
-			if err != nil {
-				log.Fatal(err)
-			}
-			defer file.Close()
-
-			// store image in temp file
-			_, err = io.Copy(file, response.Body)
-			if err != nil {
-				log.Fatalln(err)
-			}
-
-			imagePath, _ := e.AddImage(file.Name(), "")
 
 			// Remove or fix invalid width/height attributes
 			s.RemoveAttr("width")
@@ -245,17 +258,19 @@ func AppendToEpub(e *epub.Epub, c chapter) {
 		htmlContent += content
 
 		//  write to epub file
-		_, err = e.AddSection(htmlContent, c.Name(), "", "")
-		if err != nil {
-			log.Fatal(err)
+		if _, err := e.AddSection(htmlContent, c.Name(), "", ""); err != nil {
+			return err
 		}
 
 	}
 
 	// subchapters content
 	for _, sc := range c.SubChapters() {
-		AppendToEpub(e, sc)
+		if err := AppendToEpub(e, sc); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func ToMobi(c chapter, filename string) string {
@@ -281,7 +296,7 @@ func ToMobi(c chapter, filename string) string {
 
 	err := os.Remove(filenameEPUB)
 	if err != nil {
-		log.Fatal(err)
+		logFatal(err)
 	}
 
 	return filename
