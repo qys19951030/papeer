@@ -167,3 +167,14 @@ func NewTestLibrary(t *testing.T, libRoot, entryURL string) (*store.Store, *stor
 	}
 	return lib, bs
 }
+func truncateTestFile(t *testing.T, bs interface{ Dir() string }, rel string) {
+	t.Helper()
+	path := bs.Dir() + "/" + rel
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data[:len(data)/2], 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -97,18 +97,22 @@ func processImages(doc *goquery.Document, baseURL *urllib.URL, bs *store.BookSto
 		}
 
 		rel := storeRelativeImagePath(normalized)
-		imageMap[normalized] = rel
 
 		if _, existsOnDisk := bs.ImageAbsPath(rel); existsOnDisk {
 			// reuse the library copy, no network access
+			imageMap[normalized] = rel
 			return
 		}
 
 		data, err := downloadImage(absolute)
 		if err != nil {
+			// record as missing but do NOT add it to imageMap, otherwise the
+			// same image would be persisted once as present and once as
+			// missing
 			missing = append(missing, normalized)
 			return
 		}
+		imageMap[normalized] = rel
 		imageData[normalized] = data
 	})
 
