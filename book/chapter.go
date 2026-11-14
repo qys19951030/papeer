@@ -81,3 +81,14 @@ func (c chapter) Images() map[string]string {
 func (c chapter) MissingImages() []string {
 	return c.missingImages
 }
+
+// RebindStoreRoot walks the whole chapter tree and points every chapter's
+// library directory at dir. It is called after a BookStore.Commit, which
+// renames the staging directory into its final location, so rendering never
+// resolves images through a stale staging path.
+func (c *chapter) RebindStoreRoot(dir string) {
+	c.storeRoot = dir
+	for i := range c.subChapters {
+		c.subChapters[i].RebindStoreRoot(dir)
+	}
+}

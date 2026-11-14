@@ -89,6 +89,9 @@ func TestBookLifecycle(t *testing.T) {
 		Images:      []ImageRecord{{Source: "https://example.com/img/a.png"}},
 		Summary:     "hello",
 	}
+	if err := b.RegisterChapterOrder(rec.URL); err != nil {
+		t.Fatal(err)
+	}
 	if err := b.SavePage(rec, html, images); err != nil {
 		t.Fatal(err)
 	}

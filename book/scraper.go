@@ -302,6 +302,13 @@ func scrapeChapter(url, linkName string, configs []*ScrapeConfig, index int, upd
 	if opts != nil {
 		bs = opts.Store
 	}
+	// register discovery order up front so concurrent fetches cannot
+	// scramble the chapter sequence
+	if bs != nil {
+		if err := bs.RegisterChapterOrder(normalized); err != nil {
+			return chapter{}, err
+		}
+	}
 	if bs != nil && !opts.Refresh && bs.HasPage(normalized) {
 		return chapterFromStore(normalized, url, linkName, configs, index, updateProgressBarName, opts)
 	}
@@ -416,6 +423,24 @@ func scrapeSubChapters(body []byte, baseURL *urllib.URL, configs []*ScrapeConfig
 	var p progress
 	if !config.Quiet {
 		p = NewProgress(links, name, optsDepth(opts))
+	}
+
+	// register every child in link-discovery order before starting any
+	// goroutine, so concurrency cannot reorder the chapter sequence
+	if opts != nil && opts.Store != nil {
+		for _, l := range links {
+			u, err := baseURL.Parse(l.Href)
+			if err != nil {
+				return nil, err
+			}
+			normalized, err := store.NormalizeURL(u.String())
+			if err != nil {
+				return nil, err
+			}
+			if err := opts.Store.RegisterChapterOrder(normalized); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	// preallocate so concurrent goroutines never append to the same slice;

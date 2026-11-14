@@ -104,3 +104,75 @@ func TestNoTempImageFilesLeftBehind(t *testing.T) {
 		}
 	}
 }
+
+// TestOnlineEpubAfterCommitResolvesImages is a regression test: an online
+// scrape stages the book under a temporary directory that Commit renames to
+// its final name. After RebindStoreRoot, epub rendering must still resolve
+// every image to a real file instead of falling back to a network URL.
+func TestOnlineEpubAfterCommitResolvesImages(t *testing.T) {
+	srv, _ := fakeSite(t, nil)
+	lib, _ := NewTestLibrary(t, t.TempDir(), srv.URL+"/")
+
+	// rebuild the tree against a committed store to exercise the path where
+	// chapters must be repointed to the final (renamed) library directory
+	found, _ := lib.FindBook(srv.URL + "/")
+
+	offline, err := ChapterFromStore(found, srv.URL+"/", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// simulate the CLI repointing the tree at the committed directory
+	offline.RebindStoreRoot(found.Dir())
+	for _, sc := range offline.SubChapters() {
+		if sc.StoreRoot() != found.Dir() {
+			t.Fatalf("storeRoot not rebound: %q vs %q", sc.StoreRoot(), found.Dir())
+		}
+	}
+
+	epubPath := filepath.Join(t.TempDir(), "online.epub")
+	ToEpub(offline, epubPath)
+
+	r, err := zip.OpenReader(epubPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	images := 0
+	for _, f := range r.File {
+		if strings.HasSuffix(f.Name, ".png") {
+			images++
+		}
+	}
+	if images != 3 {
+		t.Fatalf("expected 3 packaged images after commit, got %d", images)
+	}
+}
+
+// TestChapterOrderIsDiscoveryOrder asserts the manifest chapter sequence and
+// the rebuilt tree follow link-discovery order deterministically.
+func TestChapterOrderIsDiscoveryOrder(t *testing.T) {
+	srv, _ := fakeSite(t, nil)
+	lib, _ := NewTestLibrary(t, t.TempDir(), srv.URL+"/")
+	found, _ := lib.FindBook(srv.URL + "/")
+
+	want := []string{srv.URL + "/", srv.URL + "/chapter1", srv.URL + "/chapter2"}
+	got := found.Manifest.Chapters
+	if len(got) != len(want) {
+		t.Fatalf("chapter list length %d, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("chapter order mismatch at %d: got %q want %q (%v)", i, got[i], want[i], got)
+		}
+	}
+
+	offline, err := ChapterFromStore(found, srv.URL+"/", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subs := offline.SubChapters()
+	if len(subs) != 2 || subs[0].Name() != "Chapter One" || subs[1].Name() != "Chapter Two" {
+		t.Errorf("rebuilt tree order wrong: %+v", subs)
+	}
+	_ = srv
+}

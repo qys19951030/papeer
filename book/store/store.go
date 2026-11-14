@@ -408,11 +408,26 @@ func (b *BookStore) SavePage(rec PageRecord, html []byte, imageData map[string][
 	rec.FetchedAt = now()
 	rec.Error = ""
 
-	if _, exists := b.Manifest.Pages[rec.URL]; !exists {
-		b.Manifest.Chapters = append(b.Manifest.Chapters, rec.URL)
-	}
+	// the chapter order is owned by RegisterChapterOrder; SavePage only
+	// upserts the record and never appends here
 	b.Manifest.Pages[rec.URL] = &rec
 
+	return b.Manifest.save(b.dir)
+}
+
+// RegisterChapterOrder records normalizedURL in the ordered chapter list,
+// preserving first-seen (i.e. link discovery) order. It must be called when
+// links are discovered rather than when concurrent fetches complete, so the
+// chapter sequence is deterministic and identical across runs.
+func (b *BookStore) RegisterChapterOrder(normalizedURL string) error {
+	b.store.mu.Lock()
+	defer b.store.mu.Unlock()
+	for _, u := range b.Manifest.Chapters {
+		if u == normalizedURL {
+			return nil
+		}
+	}
+	b.Manifest.Chapters = append(b.Manifest.Chapters, normalizedURL)
 	return b.Manifest.save(b.dir)
 }
 

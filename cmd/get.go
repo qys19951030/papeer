@@ -270,6 +270,10 @@ var getCmd = &cobra.Command{
 			if err := storeBook.Commit(); err != nil {
 				log.Fatal(err)
 			}
+			// Commit moved the staging directory to its final name; repoint
+			// every chapter at the new library directory so epub images
+			// resolve to real files rather than the vanished staging path
+			dummy.RebindStoreRoot(storeBook.Dir())
 			scraped = dummy
 		}
 

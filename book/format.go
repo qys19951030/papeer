@@ -213,12 +213,11 @@ func AppendToEpub(e *epub.Epub, c chapter) error {
 			return err
 		}
 
-		// resolve images and replace src in img tags of content
-		var imgErr error
+		// resolve images and rewrite the src attribute directly on the
+		// goquery nodes. Setting the attribute avoids fragile global string
+		// replacement (one image path is a prefix of another, a URL fragment
+		// appearing twice, ...). A single failed image is skipped.
 		doc.Find("img").Each(func(i int, s *goquery.Selection) {
-			if imgErr != nil {
-				return
-			}
 			src, _ := s.Attr("src")
 			src = strings.Split(src, "?")[0] // remove query part
 
@@ -226,22 +225,28 @@ func AppendToEpub(e *epub.Epub, c chapter) error {
 
 			imagePath, err := e.AddImage(source, "")
 			if err != nil {
-				// one bad image must not abort the entire book
-				imgErr = nil
 				return
 			}
 
 			// Remove or fix invalid width/height attributes
 			s.RemoveAttr("width")
 			s.RemoveAttr("height")
-
-			if c.config.ImagesOnly {
-				imageTag, _ := goquery.OuterHtml(s)
-				content += strings.ReplaceAll(imageTag, src, imagePath)
-			} else {
-				content = strings.ReplaceAll(content, src, imagePath)
-			}
+			s.SetAttr("src", imagePath)
 		})
+
+		if c.config.ImagesOnly {
+			// images-only books concatenate the rewritten img tags
+			content = ""
+			doc.Find("img").Each(func(i int, s *goquery.Selection) {
+				imageTag, _ := goquery.OuterHtml(s)
+				content += imageTag
+			})
+		} else {
+			content, err = doc.Html()
+			if err != nil {
+				return err
+			}
+		}
 
 		htmlContent := ""
 		// add title only if ImagesOnly = false
