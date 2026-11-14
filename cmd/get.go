@@ -256,14 +256,16 @@ var getCmd = &cobra.Command{
 			} else {
 				dummy.SetName(dummy.SubChapters()[0].Name())
 			}
-			storeBook.Manifest.Name = dummy.Name()
 
 			if getOpts.author != "" {
 				dummy.SetAuthor(getOpts.author)
 			} else {
 				dummy.SetAuthor(dummy.SubChapters()[0].Author())
 			}
-			storeBook.Manifest.Author = dummy.Author()
+
+			if err := storeBook.SetMetadata(dummy.Name(), dummy.Author()); err != nil {
+				log.Fatal(err)
+			}
 
 			if err := storeBook.Commit(); err != nil {
 				log.Fatal(err)

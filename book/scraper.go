@@ -361,6 +361,12 @@ func scrapeChapter(url, linkName string, configs []*ScrapeConfig, index int, upd
 		childOpts := childOptions(opts, normalized, depth)
 		subchapters, scrapeErr = scrapeSubChapters(body, baseURL, configs, config, name, childOpts)
 	}
+	// when a library is attached, every subchapter failure has already been
+	// recorded in its manifest: the run must continue and render the
+	// successful pages instead of failing the whole book.
+	if bs != nil {
+		scrapeErr = nil
+	}
 
 	c := chapter{
 		url:           url,
@@ -588,8 +594,8 @@ func rebuildSubChaptersFromStore(parent *store.PageRecord, configs []*ScrapeConf
 
 	// collect children in manifest order
 	children := make([]*store.PageRecord, 0)
-	for _, u := range bs.Manifest.Chapters {
-		rec := bs.Manifest.Pages[u]
+	for _, u := range bs.ChapterURLs() {
+		rec := bs.Page(u)
 		if rec == nil || rec.Parent != parent.URL {
 			continue
 		}
@@ -625,14 +631,14 @@ func persistChapter(bs *store.BookStore, normalized, originalURL string, body []
 	}
 
 	rec := store.PageRecord{
-		URL:          normalized,
-		OriginalURL:  originalURL,
-		Title:        c.name,
-		Depth:        c.depth,
-		Parent:       c.parent,
-		Order:        order,
-		Images:       images,
-		Summary:      contentSummary(string(body)),
+		URL:         normalized,
+		OriginalURL: originalURL,
+		Title:       c.name,
+		Depth:       c.depth,
+		Parent:      c.parent,
+		Order:       order,
+		Images:      images,
+		Summary:     contentSummary(string(body)),
 	}
 	return bs.SavePage(rec, body, c.imageData)
 }

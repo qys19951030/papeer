@@ -81,13 +81,13 @@ func TestBookLifecycle(t *testing.T) {
 		"https://example.com/img/a.png": []byte("png-bytes"),
 	}
 	rec := PageRecord{
-		URL:          "https://example.com/book",
-		OriginalURL:  entry,
-		Title:        "Chapter One",
-		Depth:        0,
-		Order:        0,
-		Images:       []ImageRecord{{Source: "https://example.com/img/a.png"}},
-		Summary:      "hello",
+		URL:         "https://example.com/book",
+		OriginalURL: entry,
+		Title:       "Chapter One",
+		Depth:       0,
+		Order:       0,
+		Images:      []ImageRecord{{Source: "https://example.com/img/a.png"}},
+		Summary:     "hello",
 	}
 	if err := b.SavePage(rec, html, images); err != nil {
 		t.Fatal(err)

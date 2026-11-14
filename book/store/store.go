@@ -25,7 +25,7 @@ const ImageDir = "images"
 type Store struct {
 	Root string
 
-	mu sync.Mutex
+	mu sync.RWMutex
 }
 
 // New opens (and if needed creates) a library rooted at root.
@@ -273,8 +273,8 @@ func (b *BookStore) VerifyPage(record *PageRecord) error {
 // ReadPage returns the raw HTML stored for normalizedURL after verifying
 // its integrity.
 func (b *BookStore) ReadPage(normalizedURL string) ([]byte, *PageRecord, error) {
-	record, ok := b.Manifest.Pages[normalizedURL]
-	if !ok {
+	record := b.Page(normalizedURL)
+	if record == nil {
 		return nil, nil, fmt.Errorf("%w: %s: no manifest record", ErrCorruptPage, normalizedURL)
 	}
 	if err := b.VerifyPage(record); err != nil {
@@ -289,17 +289,71 @@ func (b *BookStore) ReadPage(normalizedURL string) ([]byte, *PageRecord, error) 
 
 // HasPage reports whether a successful copy of normalizedURL is stored.
 func (b *BookStore) HasPage(normalizedURL string) bool {
+	b.store.mu.RLock()
+	defer b.store.mu.RUnlock()
 	record, ok := b.Manifest.Pages[normalizedURL]
 	return ok && record.Status == StatusSuccess
 }
 
-// Page returns the manifest record for normalizedURL or nil.
+// Page returns a copy of the manifest record for normalizedURL or nil.
+// A copy is returned so callers can never mutate manifest state without a
+// lock.
 func (b *BookStore) Page(normalizedURL string) *PageRecord {
-	return b.Manifest.Pages[normalizedURL]
+	b.store.mu.RLock()
+	defer b.store.mu.RUnlock()
+	rec, ok := b.Manifest.Pages[normalizedURL]
+	if !ok {
+		return nil
+	}
+	copy := *rec
+	copy.Images = append([]ImageRecord(nil), rec.Images...)
+	return &copy
+}
+
+// ChapterURLs returns the ordered list of stored chapter URLs.
+func (b *BookStore) ChapterURLs() []string {
+	b.store.mu.RLock()
+	defer b.store.mu.RUnlock()
+	return append([]string(nil), b.Manifest.Chapters...)
+}
+
+// AllPages returns copies of every page record, keyed by normalized URL.
+func (b *BookStore) AllPages() map[string]*PageRecord {
+	b.store.mu.RLock()
+	defer b.store.mu.RUnlock()
+	out := make(map[string]*PageRecord, len(b.Manifest.Pages))
+	for k, rec := range b.Manifest.Pages {
+		copy := *rec
+		copy.Images = append([]ImageRecord(nil), rec.Images...)
+		out[k] = &copy
+	}
+	return out
+}
+
+// SetMetadata updates the book name and author in a locked step.
+func (b *BookStore) SetMetadata(name, author string) error {
+	b.store.mu.Lock()
+	defer b.store.mu.Unlock()
+	b.Manifest.Name = name
+	b.Manifest.Author = author
+	return b.Manifest.save(b.dir)
+}
+
+// Name and Author expose the manifest metadata under the lock.
+func (b *BookStore) Name() string {
+	b.store.mu.RLock()
+	defer b.store.mu.RUnlock()
+	return b.Manifest.Name
+}
+
+func (b *BookStore) Author() string {
+	b.store.mu.RLock()
+	defer b.store.mu.RUnlock()
+	return b.Manifest.Author
 }
 
 // now is a package variable so tests can reason about time deterministically.
-var now = func() string { return time.Now().UTC().Format(time.RFC3339) }
+var now = func() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
 // SavePage atomically stores a fetched page and its images and updates the
 // manifest in one locked step. Either the whole page is present
@@ -403,11 +457,20 @@ func (b *BookStore) ClearFailures() error {
 
 // FailureURLs returns the normalized URLs recorded as failures.
 func (b *BookStore) FailureURLs() []string {
+	b.store.mu.RLock()
+	defer b.store.mu.RUnlock()
 	urls := make([]string, 0, len(b.Manifest.Failures))
 	for _, f := range b.Manifest.Failures {
 		urls = append(urls, f.URL)
 	}
 	return urls
+}
+
+// Failures returns copies of the current failure records.
+func (b *BookStore) Failures() []FailureRecord {
+	b.store.mu.RLock()
+	defer b.store.mu.RUnlock()
+	return append([]FailureRecord(nil), b.Manifest.Failures...)
 }
 
 // ImageAbsPath returns the absolute on-disk path of a stored image and

@@ -27,8 +27,8 @@ func ChapterFromStore(bs *store.BookStore, entryURL string, printURL, imagesOnly
 	}
 
 	// verify every stored page up front so the error can name any broken page
-	for _, u := range bs.Manifest.Chapters {
-		rec := bs.Manifest.Pages[u]
+	for _, u := range bs.ChapterURLs() {
+		rec := bs.Page(u)
 		if rec == nil || rec.Status != store.StatusSuccess {
 			continue
 		}
@@ -40,7 +40,7 @@ func ChapterFromStore(bs *store.BookStore, entryURL string, printURL, imagesOnly
 	// every stored page has content in the library, so every tree level
 	// includes its text. Display flags are propagated from the run options.
 	maxDepth := 0
-	for _, rec := range bs.Manifest.Pages {
+	for _, rec := range bs.AllPages() {
 		if rec.Depth > maxDepth {
 			maxDepth = rec.Depth
 		}

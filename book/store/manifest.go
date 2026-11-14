@@ -69,10 +69,10 @@ type PageRecord struct {
 
 // FailureRecord is an entry of the manifest failure list.
 type FailureRecord struct {
-	URL          string `json:"url"`
-	OriginalURL  string `json:"original_url"`
-	Error        string `json:"error"`
-	FailedAt     string `json:"failed_at"`
+	URL         string `json:"url"`
+	OriginalURL string `json:"original_url"`
+	Error       string `json:"error"`
+	FailedAt    string `json:"failed_at"`
 }
 
 // Manifest is the JSON document describing one stored book.
