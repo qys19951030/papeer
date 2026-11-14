@@ -192,6 +192,13 @@ func pageFileName(normalizedURL string) string {
 	return hex.EncodeToString(sum[:]) + ".html"
 }
 
+// ImageFileName returns the on-disk file name (under ImageDir) used for an
+// image. The extension is derived from the source URL and restricted to a
+// safe whitelist; jpg is used as the default.
+func ImageFileName(normalizedURL string) string {
+	return imageFileName(normalizedURL)
+}
+
 // imageFileName returns the on-disk file name (under ImageDir) used for an
 // image. The extension is derived from the source URL and restricted to a
 // safe whitelist; jpg is used as the default.
@@ -297,7 +304,7 @@ var now = func() string { return time.Now().UTC().Format(time.RFC3339) }
 // SavePage atomically stores a fetched page and its images and updates the
 // manifest in one locked step. Either the whole page is present
 // afterwards or nothing at all changed.
-func (b *BookStore) SavePage(rec PageRecord, html []byte, images map[string][]byte) error {
+func (b *BookStore) SavePage(rec PageRecord, html []byte, imageData map[string][]byte) error {
 	b.store.mu.Lock()
 	defer b.store.mu.Unlock()
 
@@ -308,25 +315,33 @@ func (b *BookStore) SavePage(rec PageRecord, html []byte, images map[string][]by
 	}
 	_ = absPath
 
-	// store images, recording any that are missing
+	// store images, recording any that are missing. An image already
+	// present on disk is reused as-is; imageData carries only newly
+	// downloaded bytes.
 	imageRecords := make([]ImageRecord, 0, len(rec.Images))
 	missing := 0
 	for _, img := range rec.Images {
-		normalized, err := NormalizeImageURL(img.Source)
-		if err != nil {
-			normalized = img.Source
+		rel := img.Path
+		if rel == "" {
+			normalized, err := NormalizeImageURL(img.Source)
+			if err != nil {
+				normalized = img.Source
+			}
+			rel = filepath.ToSlash(filepath.Join(ImageDir, imageFileName(normalized)))
 		}
-		data, ok := images[normalized]
-		rel := filepath.ToSlash(filepath.Join(ImageDir, imageFileName(normalized)))
-		if !ok {
-			missing++
-			imageRecords = append(imageRecords, ImageRecord{Source: img.Source, Path: rel, Missing: true})
+		if data, fresh := imageData[img.Source]; fresh {
+			if _, _, err := atomicWriteFile(filepath.Join(b.dir, ImageDir), filepath.Base(rel), data); err != nil {
+				return err
+			}
+			imageRecords = append(imageRecords, ImageRecord{Source: img.Source, Path: rel, Missing: false})
 			continue
 		}
-		if _, _, err := atomicWriteFile(filepath.Join(b.dir, ImageDir), filepath.Base(rel), data); err != nil {
-			return err
+		if _, existsOnDisk := b.ImageAbsPath(rel); existsOnDisk {
+			imageRecords = append(imageRecords, ImageRecord{Source: img.Source, Path: rel, Missing: false})
+			continue
 		}
-		imageRecords = append(imageRecords, ImageRecord{Source: img.Source, Path: rel, Missing: false})
+		missing++
+		imageRecords = append(imageRecords, ImageRecord{Source: img.Source, Path: rel, Missing: true})
 	}
 
 	rec.Path = filepath.ToSlash(pagePath)
@@ -349,7 +364,7 @@ func (b *BookStore) SavePage(rec PageRecord, html []byte, images map[string][]by
 
 // RecordFailure records a failed page in the manifest without storing any
 // file for it. A previously successful record is left untouched.
-func (b *BookStore) RecordFailure(normalizedURL, originalURL, reason string, depth, order int) error {
+func (b *BookStore) RecordFailure(normalizedURL, originalURL, reason, parent string, depth, order int) error {
 	b.store.mu.Lock()
 	defer b.store.mu.Unlock()
 
@@ -370,6 +385,7 @@ func (b *BookStore) RecordFailure(normalizedURL, originalURL, reason string, dep
 		OriginalURL: originalURL,
 		Status:      StatusFailed,
 		Error:       reason,
+		Parent:      parent,
 		Depth:       depth,
 		Order:       order,
 		FetchedAt:   now(),

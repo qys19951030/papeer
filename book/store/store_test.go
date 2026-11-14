@@ -179,7 +179,7 @@ func TestRecordFailureLeavesNoOrphanFile(t *testing.T) {
 	s, _ := New(root)
 	b, _ := s.CreateBook("B", "", "https://example.com/")
 
-	if err := b.RecordFailure("https://example.com/missing", "https://example.com/missing/", "connection refused", 1, 0); err != nil {
+	if err := b.RecordFailure("https://example.com/missing", "https://example.com/missing/", "connection refused", "https://example.com", 1, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.Commit(); err != nil {

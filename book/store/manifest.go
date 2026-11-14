@@ -53,6 +53,8 @@ type PageRecord struct {
 	// Depth is the chapter tree depth at which the page was visited,
 	// used to rebuild the chapter tree offline.
 	Depth int `json:"depth"`
+	// Parent is the normalized URL of the parent page, empty for the entry.
+	Parent string `json:"parent"`
 	// Order is the visit order, used to keep the chapter sequence stable.
 	Order int `json:"order"`
 	// ImageCount is the number of images referenced by the page.
